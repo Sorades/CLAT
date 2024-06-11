@@ -1,0 +1,9 @@
+class_path: data.FundusDatamodule
+init_args:
+  dataset_name: RAO
+  disease_names: ["Acute","Chronic","No RAO"]
+  lesion_names: ["RW", "CRS", "SCRV", "HE","CWS","RACS"]
+  kfold: 10
+  fold_num: 1
+  batch_size: 16
+  img_size: 384

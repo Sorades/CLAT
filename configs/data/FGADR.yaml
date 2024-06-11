@@ -1,0 +1,9 @@
+class_path: data.FundusDatamodule
+init_args:
+  dataset_name: FGADR
+  disease_names: ["No DR", "Mild", "Moderate", "Severe", "Proliferative"]
+  lesion_names: ["EX", "HE", "MA", "SE"]
+  kfold: 10
+  fold_num: 1
+  batch_size: 16
+  img_size: 384
