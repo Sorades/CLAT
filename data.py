@@ -93,7 +93,7 @@ class FundusDatamodule(LightningDataModule):
         train_disease_annotation, val_disease_annotation, test_disease_annotation = (
             kfold_split(self.kfold, self.fold_num, disease_df)
             if self.kfold > 1
-            else handout_split(self.val_size, self.test_size, lesion_df)
+            else handout_split(self.val_size, self.test_size, disease_df)
         )
         trainset = FundusDatasetWithLesion(
             root_dir,
@@ -133,7 +133,7 @@ class FundusDatamodule(LightningDataModule):
         train_disease_annotation, val_disease_annotation, test_disease_annotation = (
             kfold_split(self.kfold, self.fold_num, disease_df)
             if self.kfold > 1
-            else handout_split(self.val_size, self.test_size, lesion_df)
+            else handout_split(self.val_size, self.test_size, disease_df)
         )
         trainset = FundusDatasetWithLesion(
             root_dir,
@@ -174,7 +174,7 @@ class FundusDatamodule(LightningDataModule):
         train_disease_annotation, val_disease_annotation, test_disease_annotation = (
             kfold_split(self.kfold, self.fold_num, disease_df)
             if self.kfold > 1
-            else handout_split(self.val_size, self.test_size, lesion_df)
+            else handout_split(self.val_size, self.test_size, disease_df)
         )
         trainset = FundusDatasetWithLesion(
             root_dir,
