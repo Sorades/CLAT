@@ -48,7 +48,7 @@ python main.py exp_int --config configs/default.yaml --data configs/data/FGADDR.
   author={Wen, Chi and Ye, Mang and Li, He and Chen, Ting and Xiao, Xuan},
   journal={IEEE Transactions on Medical Imaging},
   year={2024},
-  publisher={IEEE Transactions on Medical Imaging},
+  publisher={IEEE},
   doi={10.1109/TMI.2024.3429148}
 }
 ```
