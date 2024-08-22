@@ -1,7 +1,7 @@
 # CLAT
 Official implementation of CLAT: Concept-based Lesion Aware Transformer for Interpretable Retinal Disease Diagnosis (TMI, 2024)
 
-![framework](.\clat.png)
+![framework](clat.png)
 
 ## Usage
 
