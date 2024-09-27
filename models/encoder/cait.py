@@ -3,7 +3,6 @@
 import math
 from typing import List
 import torch
-import timm
 import torch.nn as nn
 import torch.nn.functional as F
 from timm.models.layers import trunc_normal_, to_2tuple

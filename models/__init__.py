@@ -1,1 +1,1 @@
-from .abstracts import AbstractCPTModule, AbstractCLSModule
+from .abstracts import AbstractCPTModule

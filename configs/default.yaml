@@ -32,7 +32,7 @@ trainer:
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
     init_args:
-      save_dir: /data1/wc_log/LesionDetect/
+      save_dir: logs
       name: .test
       version: 
       log_graph: false

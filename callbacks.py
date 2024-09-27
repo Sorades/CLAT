@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Union
+from typing import Any
 from lightning import LightningModule, Trainer
 import torch
 from lightning import Callback
