@@ -1,10 +1,10 @@
-from typing import Dict, Set
-from lightning import LightningModule, LightningDataModule
-from lightning.pytorch.cli import LightningArgumentParser, LightningCLI
-from lightning import Trainer
+from typing import Optional
 
-from models.clat import CLAT
-from utils import logging_config
+from lightning import LightningDataModule, LightningModule, Trainer
+from lightning.pytorch.cli import LightningArgumentParser, LightningCLI
+
+from clat.model import CLAT
+from clat.utils import logging_config
 
 
 class MyTrainer(Trainer):
@@ -16,8 +16,8 @@ class MyTrainer(Trainer):
         model: "LightningModule",
         train_dataloaders=None,
         val_dataloaders=None,
-        datamodule: "LightningDataModule" = None,
-        ckpt_path: str = None,
+        datamodule: Optional["LightningDataModule"] = None,
+        ckpt_path: Optional[str] = None,
     ) -> None:
         """fit and test the model"""
         self.fit(model, datamodule, ckpt_path)
@@ -28,8 +28,8 @@ class MyTrainer(Trainer):
         model: CLAT,
         train_dataloaders=None,
         val_dataloaders=None,
-        datamodule: "LightningDataModule" = None,
-        ckpt_path: str = None,
+        datamodule: Optional["LightningDataModule"] = None,
+        ckpt_path: Optional[str] = None,
     ) -> None:
         """fit, test, and intervene the model"""
 
@@ -64,7 +64,7 @@ class MyCLI(LightningCLI):
         try:
             config_overwrite = self.config["config_overwrite"]
         except KeyError:
-            config_overwrite = self.config[self.subcommand]["config_overwrite"]
+            config_overwrite = self.config[self.subcommand]["config_overwrite"]  # type: ignore
         if config_overwrite:
             print("Overwriting config file")
             self.save_config_kwargs = {"overwrite": True}
@@ -72,7 +72,7 @@ class MyCLI(LightningCLI):
         logging_config(self.trainer.log_dir, self.trainer.local_rank)
 
     @staticmethod
-    def subcommands() -> Dict[str, Set[str]]:
+    def subcommands() -> dict[str, set[str]]:
         subcommands = LightningCLI.subcommands()
         subcommands.update(
             {
@@ -94,7 +94,8 @@ class MyCLI(LightningCLI):
 
 
 def cli_main():
-    cli = MyCLI()
+    _ = MyCLI()
+
 
 if __name__ == "__main__":
     cli_main()

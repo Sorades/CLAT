@@ -1,31 +1,31 @@
-import cv2
-# avoid overload of CPU with multiple GPU envs
-cv2.setNumThreads(0)
-cv2.ocl.setUseOpenCL(False)
-
 import re
+from collections import namedtuple
+from typing import Optional
+
+import albumentations as A
 import numpy as np
 import pandas as pd
-from PIL import Image
-import albumentations as A
 from albumentations.pytorch import ToTensorV2
-from pandas import DataFrame
 from lightning import LightningDataModule
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-from typing import List
+from pandas import DataFrame
+from PIL import Image
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+from torch.utils.data import DataLoader, Dataset
 
-from utils import kfold_split, handout_split
+from clat.utils import handout_split, kfold_split
+
+DataItem = namedtuple(
+    "DataItem", ["image", "disease_lbls", "lesion_lbls", "id", "img_path"]
+)
 
 
 class FundusDatamodule(LightningDataModule):
     def __init__(
         self,
         dataset_name: str,
-        disease_names: List[str],
-        lesion_names: List[str],
-        val_size: float = None,
+        disease_names: list[str],
+        lesion_names: list[str],
+        val_size: Optional[float] = None,
         test_size: float = 0.2,
         kfold: int = 0,
         fold_num: int = -1,
@@ -69,9 +69,9 @@ class FundusDatamodule(LightningDataModule):
     def setup(self, stage: str) -> None:
         method_name = f"setup_{self.dataset_name}_dataset"
         setup_method = getattr(self, method_name, None)
-        assert (
-            setup_method is not None
-        ), f"Dataset {self.dataset_name} not supported, please choose from {self.dataset_support_list}."
+        assert setup_method is not None, (
+            f"Dataset {self.dataset_name} not supported, please choose from {self.dataset_support_list}."
+        )
 
         trainset, valset, testset = setup_method()
         if stage == "fit" or stage is None:
@@ -82,10 +82,10 @@ class FundusDatamodule(LightningDataModule):
 
         return super().setup(stage)
 
-    def setup_DDR_dataset(self) -> None:
+    def setup_DDR_dataset(self):
         disease_annotation_file = "data/annotation_DDR_disease.csv"
         lesion_annotation_file = "data/annotation_DDR_lesion.csv"
-        root_dir = "/data0/wc_data/LesionDetect/DDR/fundus_384" # Modify this to your own path
+        root_dir = "data/DDR/fundus_384"  # Modify this to your own path
 
         disease_df = pd.read_csv(disease_annotation_file)
         lesion_df = pd.read_csv(lesion_annotation_file)
@@ -97,7 +97,7 @@ class FundusDatamodule(LightningDataModule):
         )
         trainset = FundusDatasetWithLesion(
             root_dir,
-            ids=train_disease_annotation["ID"].values,
+            ids=train_disease_annotation["ID"].values.tolist(),
             disease_lbls=train_disease_annotation.iloc[:, 1:].values.argmax(axis=1),
             lesion_annotations=lesion_df,
             transforms=self.train_transforms,
@@ -105,7 +105,7 @@ class FundusDatamodule(LightningDataModule):
         )
         valset = FundusDatasetWithLesion(
             root_dir,
-            ids=val_disease_annotation["ID"].values,
+            ids=val_disease_annotation["ID"].values.tolist(),
             disease_lbls=val_disease_annotation.iloc[:, 1:].values.argmax(axis=1),
             lesion_annotations=lesion_df,
             transforms=self.eval_transforms,
@@ -113,7 +113,7 @@ class FundusDatamodule(LightningDataModule):
         )
         testset = FundusDatasetWithLesion(
             root_dir,
-            ids=test_disease_annotation["ID"].values,
+            ids=test_disease_annotation["ID"].values.tolist(),
             disease_lbls=test_disease_annotation.iloc[:, 1:].values.argmax(axis=1),
             lesion_annotations=lesion_df,
             transforms=self.eval_transforms,
@@ -121,14 +121,16 @@ class FundusDatamodule(LightningDataModule):
         )
         return trainset, valset, testset
 
-    def setup_RAO_dataset(self) -> None:
-        disease_annotation_file = "/data0/wc_data/LesionDetect/RAO/annotations/new_label_stage.csv"
-        lesion_annotation_file = "/data0/wc_data/LesionDetect/RAO/annotations/new_label_lesion.csv" 
+    def setup_RAO_dataset(self):
+        disease_annotation_file = "log/RAO/annotations/new_label_stage.csv"
+        lesion_annotation_file = "log/RAO/annotations/new_label_lesion.csv"
 
-        root_dir = "/data0/wc_data/LesionDetect/RAO/fundus_512"
+        root_dir = "data/RAO/fundus_512"
 
         disease_df = pd.read_csv(disease_annotation_file)
-        lesion_df = pd.read_csv(lesion_annotation_file).loc[:, ["ID"] + self.lesion_names]
+        lesion_df = pd.read_csv(lesion_annotation_file).loc[
+            :, ["ID"] + self.lesion_names
+        ]
         # split data
         train_disease_annotation, val_disease_annotation, test_disease_annotation = (
             kfold_split(self.kfold, self.fold_num, disease_df)
@@ -137,7 +139,7 @@ class FundusDatamodule(LightningDataModule):
         )
         trainset = FundusDatasetWithLesion(
             root_dir,
-            ids=train_disease_annotation["ID"].values,
+            ids=train_disease_annotation["ID"].values.tolist(),
             disease_lbls=train_disease_annotation.iloc[:, 1:].values.argmax(axis=1),
             lesion_annotations=lesion_df,
             transforms=self.train_transforms,
@@ -145,7 +147,7 @@ class FundusDatamodule(LightningDataModule):
         )
         valset = FundusDatasetWithLesion(
             root_dir,
-            ids=val_disease_annotation["ID"].values,
+            ids=val_disease_annotation["ID"].values.tolist(),
             disease_lbls=val_disease_annotation.iloc[:, 1:].values.argmax(axis=1),
             lesion_annotations=lesion_df,
             transforms=self.eval_transforms,
@@ -153,7 +155,7 @@ class FundusDatamodule(LightningDataModule):
         )
         testset = FundusDatasetWithLesion(
             root_dir,
-            ids=test_disease_annotation["ID"].values,
+            ids=test_disease_annotation["ID"].values.tolist(),
             disease_lbls=test_disease_annotation.iloc[:, 1:].values.argmax(axis=1),
             lesion_annotations=lesion_df,
             transforms=self.eval_transforms,
@@ -162,11 +164,11 @@ class FundusDatamodule(LightningDataModule):
 
         return trainset, valset, testset
 
-    def setup_FGADR_dataset(self) -> None:
+    def setup_FGADR_dataset(self):
         disease_annotation_file = "data/annotation_FGADR_disease.csv"
         lesion_annotation_file = "data/annotation_FGADR_lesion.csv"
 
-        root_dir = "/data0/wc_data/LesionDetect/FGADR/fundus_384" # Modify this to your own path
+        root_dir = "data/FGADR/fundus_384"  # Modify this to your own path
 
         disease_df = pd.read_csv(disease_annotation_file)
         lesion_df = pd.read_csv(lesion_annotation_file)
@@ -178,7 +180,7 @@ class FundusDatamodule(LightningDataModule):
         )
         trainset = FundusDatasetWithLesion(
             root_dir,
-            ids=train_disease_annotation["ID"].values,
+            ids=train_disease_annotation["ID"].values.tolist(),
             disease_lbls=train_disease_annotation.iloc[:, 1:].values.argmax(axis=1),
             lesion_annotations=lesion_df,
             transforms=self.train_transforms,
@@ -186,7 +188,7 @@ class FundusDatamodule(LightningDataModule):
         )
         valset = FundusDatasetWithLesion(
             root_dir,
-            ids=val_disease_annotation["ID"].values,
+            ids=val_disease_annotation["ID"].values.tolist(),
             disease_lbls=val_disease_annotation.iloc[:, 1:].values.argmax(axis=1),
             lesion_annotations=lesion_df,
             transforms=self.eval_transforms,
@@ -194,7 +196,7 @@ class FundusDatamodule(LightningDataModule):
         )
         testset = FundusDatasetWithLesion(
             root_dir,
-            ids=test_disease_annotation["ID"].values,
+            ids=test_disease_annotation["ID"].values.tolist(),
             disease_lbls=test_disease_annotation.iloc[:, 1:].values.argmax(axis=1),
             lesion_annotations=lesion_df,
             transforms=self.eval_transforms,
@@ -203,7 +205,7 @@ class FundusDatamodule(LightningDataModule):
 
         return trainset, valset, testset
 
-    def setup_FGADDR_dataset(self) -> None:
+    def setup_FGADDR_dataset(self):
         from torch.utils.data import ConcatDataset
 
         DDR_train, DDR_val, DDR_test = self.setup_DDR_dataset()
@@ -212,7 +214,6 @@ class FundusDatamodule(LightningDataModule):
         valset = ConcatDataset([DDR_val, FGADR_val])
         testset = ConcatDataset([DDR_test, FGADR_test])
         return trainset, valset, testset
-
 
     def train_dataloader(self):
         return DataLoader(
@@ -244,7 +245,7 @@ class FundusDatamodule(LightningDataModule):
     @classmethod
     def dataset_support_list(cls):
         return [
-            re.match("setup_(.*)_dataset", name).group(1)
+            re.match("setup_(.*)_dataset", name).group(1)  # type: ignore
             for name in dir(cls)
             if re.match("setup_(.*)_dataset", name)
         ]
@@ -254,7 +255,7 @@ class FundusDatasetWithLesion(Dataset):
     def __init__(
         self,
         root_dir: str,
-        ids: np.ndarray,
+        ids: list,
         disease_lbls: np.ndarray,
         lesion_annotations: DataFrame,
         transforms: A.Compose,
@@ -285,9 +286,9 @@ class FundusDatasetWithLesion(Dataset):
         disease_lbls = self.disease_lbls[index]
         img_path = f"{self.root_dir}/{id}.{self.file_ext}"
 
-        assert (
-            id in self.lesion_annotations["ID"].values
-        ), f"{id} does not exist in lesion annotations file."
+        assert id in self.lesion_annotations["ID"].values, (
+            f"{id} does not exist in lesion annotations file."
+        )
         assert isinstance(self.transforms, A.Compose), "Invalid transforms."
 
         # Get concept labels
@@ -301,11 +302,10 @@ class FundusDatasetWithLesion(Dataset):
 
         image = self.transforms(image=image)["image"]
 
-        return {
-            "image": image,
-            "disease_lbls": disease_lbls,
-            "lesion_lbls": lesion_lbls.values[0],
-            "id": id,
-            "img_path": img_path,
-        }
-
+        return DataItem(
+            image=image,
+            disease_lbls=disease_lbls,
+            lesion_lbls=lesion_lbls.values[0],
+            id=id,
+            img_path=img_path,
+        )

@@ -1,25 +1,12 @@
+from typing import Any, Literal, Optional
+
 import torch
 import torch.nn as nn
-from typing import Dict, List, Tuple, Union
+from lightning import LightningModule
 
-from models.abstracts import AbstractCPTModule
-from models import encoder
-
-
-def load_concept_model(
-    arch_name: str,
-    num_classes: int,
-    num_lesions: int,
-    img_size: int,
-    pretrained: bool = True,
-) -> Union[encoder.CaiTConcept, encoder.ViTConcept]:
-    model = getattr(encoder, arch_name)(
-        num_classes=num_classes,
-        num_lesions=num_lesions,
-        img_size=img_size,
-        pretrained=pretrained,
-    )
-    return model
+from clat.data import DataItem
+from clat.encoder import load_encoder
+from clat.utils import CLATOutput
 
 
 class KnowledgeGuideLoss(nn.Module):
@@ -44,11 +31,11 @@ class KnowledgeGuideLoss(nn.Module):
         return loss
 
 
-class CLAT(AbstractCPTModule):
+class CLAT(LightningModule):
     def __init__(
         self,
-        disease_names: List[str],
-        lesion_names: List[str],
+        disease_names: list[str],
+        lesion_names: list[str],
         img_size: int = 224,
         arch_name: str = "cait_s24_224_concept",
         pretrained: bool = True,
@@ -56,17 +43,22 @@ class CLAT(AbstractCPTModule):
         lesion_loss_weight: float = 0.6,
         KG_loss_weight: float = 0.4,
         with_EK: bool = False,
-        training_int_prob: float = None,
+        training_int_prob: Optional[float] = None,
         training_int_milestone: int = 0,
         eval_int: bool = False,
     ) -> None:
-        super().__init__(disease_names, lesion_names, img_size)
+        super().__init__()
         self.save_hyperparameters()
+        self.num_disease = len(disease_names)
+        self.num_lesions = len(lesion_names)
+        self.disease_names = disease_names
+        self.lesion_names = lesion_names
+        self.img_size = img_size
         self.training_int_prob = training_int_prob
         self.training_int_milestone = training_int_milestone
         self.eval_int = eval_int
 
-        self.model = load_concept_model(
+        self.model = load_encoder(
             arch_name,
             pretrained=pretrained,
             num_classes=self.num_disease,
@@ -91,40 +83,48 @@ class CLAT(AbstractCPTModule):
         self.loss_lesion = nn.MultiLabelSoftMarginLoss()
         self.loss_knowledge_guide = KnowledgeGuideLoss(knowledge_embeds)
 
-    def forward(self, x, return_attn=False, **kwargs):
+    def forward(self, x, return_attn=False, **kwargs) -> CLATOutput:
         return self.model(x, return_attn=return_attn, **kwargs)
 
-    def _run_step(self, batch, **kwargs) -> Tuple[Dict, Dict]:
+    def shared_step(
+        self, batch: DataItem, stage: Literal["train", "val", "test"]
+    ) -> dict[str, Any]:
         images, disease_lbls, lesion_lbls = (
-            batch["image"],
-            batch["disease_lbls"],
-            batch["lesion_lbls"],
+            batch.image,
+            batch.disease_lbls,
+            batch.lesion_lbls,
         )
+        bs = images.shape[0]
 
+        output: CLATOutput
+        # forward
         if (
             self.training
             and self.training_int_prob
             and self.training_int_milestone is not None
             and self.current_epoch >= self.training_int_milestone
         ):
-            disease_logits, lesion_logits, lesion_tokens = self(
+            output = self(
                 images, int_prob=self.training_int_prob, lesion_lbls=lesion_lbls
             )
         else:
-            disease_logits, lesion_logits, lesion_tokens = self(images)
+            output = self(images, return_attn=stage == "test")
 
+        # loss
         disease_loss = (
-            self.loss_disease(disease_logits, disease_lbls)
+            self.loss_disease(output.disease_logits, disease_lbls)
             if self.disease_loss_weight > 0
             else 0
         )
         lesion_loss = (
-            self.loss_lesion(lesion_logits, lesion_lbls)
+            self.loss_lesion(output.lesion_logits, lesion_lbls)
             if self.lesion_loss_weight > 0
             else 0
         )
         KG_loss = (
-            self.loss_knowledge_guide(self.token2concept(lesion_tokens), lesion_lbls)
+            self.loss_knowledge_guide(
+                self.token2concept(output.lesion_tokens), lesion_lbls
+            )
             if self.KG_loss_weight > 0
             else 0
         )
@@ -135,15 +135,23 @@ class CLAT(AbstractCPTModule):
             + self.KG_loss_weight * KG_loss
         )
 
-        loss_dict = {
-            "loss": loss,
-            "disease_loss": disease_loss,
-            "lesion_loss": lesion_loss,
-            "KG_loss": KG_loss,
-        }
-        out_dict = {"disease_logits": disease_logits, "lesion_logits": lesion_logits}
+        self.log(
+            f"loss/{stage}_loss", loss, prog_bar=True, batch_size=bs, sync_dist=True
+        )
+        self.log_dict(
+            {
+                f"loss/{stage}_disease_loss": disease_loss,
+                f"loss/{stage}_lesion_loss": lesion_loss,
+                f"loss/{stage}_KG_loss": KG_loss,
+            },
+            prog_bar=False,
+            batch_size=bs,
+            sync_dist=True,
+        )
 
-        return loss_dict, out_dict
+        ret_dict = {"loss": loss, **output._asdict()}
+
+        return ret_dict
 
     def get_explanations(self, image):
         pred = self(image, return_attn=True)
@@ -234,3 +242,12 @@ class CLAT(AbstractCPTModule):
         )
 
         return expl, pred
+
+    def training_step(self, batch):
+        return self.shared_step(batch, stage="train")
+
+    def validation_step(self, batch):
+        return self.shared_step(batch, stage="val")
+
+    def test_step(self, batch):
+        return self.shared_step(batch, stage="test")

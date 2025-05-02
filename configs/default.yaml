@@ -1,7 +1,7 @@
 seed_everything: 42
 
 model:
-  class_path: models.clat.CLAT
+  class_path: clat.model.CLAT
   init_args:
     arch_name: cait_xs24_384_concept
     pretrained: true
@@ -32,7 +32,7 @@ trainer:
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
     init_args:
-      save_dir: logs
+      save_dir: log
       name: .test
       version: 
       log_graph: false
@@ -45,12 +45,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
-    - class_path: lightning.pytorch.callbacks.EarlyStopping
-      init_args:
-        monitor: loss/val_loss
-        mode: min
-        patience: 15
-        verbose: true
-    - class_path: callbacks.MetricsCaculator
+    - class_path: clat.callbacks.MetricsCaculator
       init_args:
         verbose: true
+    - class_path: clat.callbacks.GenHeatmap

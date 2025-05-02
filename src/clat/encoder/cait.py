@@ -1,53 +1,23 @@
 # copy from cait_models.py in https://github.com/facebookresearch/deit/blob/main/cait_models.py
 
 import math
-from typing import List
+from typing import Optional, Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.models.layers import trunc_normal_, to_2tuple
+from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.vision_transformer import Mlp, PatchEmbed
-from timm.models.layers import trunc_normal_, DropPath
 
-from utils import load_timm_weights
-from .utils import CrossAttention
+from clat.utils import CLATOutput, CrossAttention, load_timm_weights
 
 __all__ = [
     "cait_xs24_384_concept",
     "cait_xxs24_384_concept",
     "cait_xxs24_224_concept",
     "cait_s24_224_concept",
-    "cait_xs24_384_eyepacs",
     "CaiTConcept",
 ]
-
-
-def load_cait_concept(arch_name: str, **kwargs) -> "CaiTConcept":
-    func = globals().get(arch_name)
-    return func(**kwargs)
-
-
-def cait_xs24_384_eyepacs(pretrained=False, **kwargs):
-    model = CaiTConcept(
-        embed_dim=288,
-        depth=24,
-        num_heads=6,
-        qkv_bias=True,
-        init_scale=1e-5,
-        **kwargs,
-    )
-    eyepacs_ckpt_path = "/data1/wc_log/LesionDetect/EyePACS/pretrain/cait_xs24_384_/lr1e-4_bs64/checkpoints/epoch=10-step=6039.ckpt"
-    ckpt = torch.load(eyepacs_ckpt_path, map_location="cpu")
-
-    state_dict = {k.replace("model.", ""): v for k, v in ckpt["state_dict"].items()}
-    state_dict.pop("head.weight")
-    state_dict.pop("head.bias")
-    msg = model.load_state_dict(state_dict, strict=False)
-    [print(f'missing: {key}') for key in msg.missing_keys]
-    [print(f'unexpected: {key}') for key in msg.unexpected_keys]
-
-    return model
-
 
 
 def cait_xs24_384_concept(pretrained=False, **kwargs):
@@ -374,7 +344,7 @@ class cait_models(nn.Module):
         num_patches = self.patch_embed.num_patches
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))  # type: ignore
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [drop_path_rate for i in range(depth)]
@@ -440,7 +410,7 @@ class cait_models(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    @torch.jit.ignore
+    @torch.jit.ignore  # type: ignore
     def no_weight_decay(self):
         return {"pos_embed", "cls_token"}
 
@@ -483,12 +453,12 @@ class CaiTConcept(cait_models):
         super().__init__(*args, **kwargs)
         self.num_concepts = num_lesions
         self.decay_parameter = decay_parameter
-        self.head = nn.Conv2d(self.embed_dim, self.num_concepts, kernel_size=[1, 1])
+        self.head = nn.Conv2d(self.embed_dim, self.num_concepts, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
 
         img_size = to_2tuple(self.img_size)
         patch_size = to_2tuple(self.patch_embed.patch_size)
-        num_patches = (img_size[1] // patch_size[1]) * (img_size[0] // patch_size[0])
+        num_patches = (img_size[1] // patch_size[1]) * (img_size[0] // patch_size[0])  # type: ignore
         self.num_patches = num_patches
 
         self.concept_cls_token = nn.Parameter(
@@ -581,10 +551,10 @@ class CaiTConcept(cait_models):
         n_layers=2,
         return_attn=False,
         attention_type="fused",
-        lesion_lbls: torch.Tensor = None,
-        intervene_sample_idx: int = None,
-        intervene_cpt_idx: List[int] = None,
-        int_prob: float = None,
+        lesion_lbls: Optional[torch.Tensor] = None,
+        intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
+        intervene_cpt_idx: Optional[list[int]] = None,
+        int_prob: Optional[float] = None,
     ):
         w, h = x.shape[2:]
         (
@@ -621,22 +591,26 @@ class CaiTConcept(cait_models):
         if int_prob is not None:
             bs_size = concept_logits.size(0)
             intervene_sample_idx = (
-                torch.bernoulli(torch.tensor([int_prob] * bs_size))
-                .nonzero()
-                .squeeze()
+                torch.bernoulli(torch.tensor([int_prob] * bs_size)).nonzero().squeeze()
             )
 
-        if intervene_sample_idx is not None:
+        if intervene_sample_idx is not None and lesion_lbls is not None:
             lesion_probs = torch.sigmoid(concept_logits)
-            int_precision = torch.clamp(lesion_lbls,0.01,0.99)
-            target_scale = torch.log(int_precision / (1 - int_precision))/concept_patch_logits
-            lesion_int_scale = torch.where(lesion_lbls == lesion_probs.round(), 1., target_scale)
+            int_precision = torch.clamp(lesion_lbls, 0.01, 0.99)
+            target_scale = (
+                torch.log(int_precision / (1 - int_precision)) / concept_patch_logits
+            )
+            lesion_int_scale = torch.where(
+                lesion_lbls == lesion_probs.round(), 1.0, target_scale
+            )
             mask = torch.zeros_like(lesion_probs)
             if intervene_cpt_idx is not None:
                 mask[intervene_sample_idx, intervene_cpt_idx] = 1
             else:
                 mask[intervene_sample_idx] = 1
-            concept_logits_i = concept_tokens * (1-mask.unsqueeze(-1)) + concept_tokens * mask.unsqueeze(-1) * lesion_int_scale.unsqueeze(-1)
+            concept_logits_i = concept_tokens * (
+                1 - mask.unsqueeze(-1)
+            ) + concept_tokens * mask.unsqueeze(-1) * lesion_int_scale.unsqueeze(-1)
         else:
             concept_logits_i = concept_tokens
 
@@ -644,9 +618,6 @@ class CaiTConcept(cait_models):
             self.class_tokens.repeat(n, 1, 1), concept_logits_i
         )
         class_logits = out_value.mean(dim=-1)
-
-        if not return_attn:
-            return class_logits, concept_logits, concept_tokens
 
         if return_attn:
             feature_map = concept_patch.detach().clone()  # B * num_lesions * 14 * 14
@@ -674,14 +645,19 @@ class CaiTConcept(cait_models):
             elif attention_type == "mct":
                 cams = mtatt
             else:
-                raise f"Error! {attention_type} is not defined!"
+                raise ValueError(f"Error! {attention_type} is not defined!")
 
-            return class_logits, concept_logits, cams, patch_attn, cross_attn_maps
+            return CLATOutput(
+                class_logits,
+                concept_logits,
+                concept_tokens,
+                cams,
+                patch_attn,
+                cross_attn_maps,
+            )
 
-        return (
-            class_logits,
-            concept_logits,
-            concept_tokens,
+        return CLATOutput(
+            class_logits, concept_logits, concept_tokens, None, None, None
         )
 
     def learn_concept_embed(self):

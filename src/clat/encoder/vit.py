@@ -1,22 +1,26 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-# Partly revised by YZ @UCL&Moorfields
+# Partly revised by YZ @UCL&Moorfields and CW @WHU
 # --------------------------------------------------------
 
-from functools import partial
 import math
-from typing import List
+from functools import partial
+from typing import Optional, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from timm.models import vision_transformer as vit
 from timm.models.layers import trunc_normal_
-from timm.models.vision_transformer import VisionTransformer, Block, Attention
 
-from utils import load_timm_weights
-from models.encoder.utils import CrossAttention, load_milvt_ckpt
+from clat.utils import CLATOutput, CrossAttention, load_milvt_ckpt, load_timm_weights
 
-__all__ = ["MIL_VT_Concept", "ViTConcept", "vit_small_concept","vit_base_concept","deit3_small_concept","deit3_base_concept"]
+__all__ = [
+    "MIL_VT_Concept",
+    "vit_small_concept",
+    "vit_base_concept",
+    "ViTConcept",
+]
 
 
 def MIL_VT_Concept(pretrained: bool, **kwargs) -> "ViTConcept":
@@ -33,9 +37,9 @@ def MIL_VT_Concept(pretrained: bool, **kwargs) -> "ViTConcept":
         **kwargs,
     )
     if pretrained:
-        model = load_milvt_ckpt(
-            model, "/data0/wc_data/LesionDetect/weights/MIL_VIT_pretrain.pth.tar"
-        )
+        model: ViTConcept = load_milvt_ckpt(
+            model, "data/weights/MIL_VIT_pretrain.pth.tar"
+        )  # type: ignore
 
     return model
 
@@ -44,29 +48,18 @@ def vit_small_concept(pretrained: bool, **kwargs) -> "ViTConcept":
     model = ViTConcept(patch_size=16, embed_dim=384, depth=12, num_heads=6, **kwargs)
     if pretrained:
         model = load_timm_weights("vit_small_patch16_384", model)
-    return model
+    return model  # type: ignore
+
 
 def vit_base_concept(pretrained: bool, **kwargs) -> "ViTConcept":
     model = ViTConcept(patch_size=16, embed_dim=768, depth=12, num_heads=12, **kwargs)
     if pretrained:
         model = load_timm_weights("vit_base_patch16_384", model)
-    return model
-
-def deit3_small_concept(pretrained: bool, **kwargs) -> "ViTConcept":
-    model = ViTConcept(patch_size=16, embed_dim=384, depth=12, num_heads=6, **kwargs)
-    if pretrained:
-        model = load_timm_weights("deit3_small_patch16_384", model)
-    return model
-
-def deit3_base_concept(pretrained: bool, **kwargs) -> "ViTConcept":
-    model = ViTConcept(patch_size=16, embed_dim=768, depth=12, num_heads=12, **kwargs)
-    if pretrained:
-        model = load_timm_weights("deit3_base_patch16_384", model)
-    return model
+    return model  # type: ignore
 
 
-class Attention(Attention):
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+class Attention(vit.Attention):
+    def forward(self, x: torch.Tensor):
         B, N, C = x.shape
         qkv = (
             self.qkv(x)
@@ -95,7 +88,7 @@ class Attention(Attention):
         return x, weights
 
 
-class Block(Block):
+class Block(vit.Block):
     def __init__(
         self,
         dim: int,
@@ -105,10 +98,10 @@ class Block(Block):
         qk_norm: bool = False,
         proj_drop: float = 0,
         attn_drop: float = 0,
-        init_values: float = None,
+        init_values: Optional[float] = None,
         drop_path: float = 0,
-        act_layer: nn.Module = nn.GELU,
-        norm_layer: nn.Module = nn.LayerNorm,
+        act_layer: nn.Module = nn.GELU,  # type: ignore
+        norm_layer: nn.Module = nn.LayerNorm,  # type: ignore
         mlp_layer: nn.Module = ...,
     ) -> None:
         super().__init__(
@@ -142,7 +135,7 @@ class Block(Block):
         return x, weights
 
 
-class ViTConcept(VisionTransformer):
+class ViTConcept(vit.VisionTransformer):
     """Vision Transformer with support for global average pooling"""
 
     def __init__(
@@ -155,7 +148,7 @@ class ViTConcept(VisionTransformer):
         super().__init__(img_size=img_size, block_fn=Block, **kwargs)
         self.img_size = img_size
         self.num_lesions = num_lesions
-        self.head = nn.Conv2d(self.embed_dim, self.num_lesions, kernel_size=[1, 1])
+        self.head = nn.Conv2d(self.embed_dim, self.num_lesions, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
         self.num_patches = num_patches = self.patch_embed.num_patches
 
@@ -236,10 +229,10 @@ class ViTConcept(VisionTransformer):
         n_layers=24,
         return_attn=False,
         attention_type="fused",
-        lesion_lbls: torch.Tensor = None,
-        intervene_sample_idx: int = None,
-        intervene_cpt_idx: List[int] = None,
-        int_prob: float = None,
+        lesion_lbls: Optional[torch.Tensor] = None,
+        intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
+        intervene_cpt_idx: Optional[list[int]] = None,
+        int_prob: Optional[float] = None,
     ):
         w, h = x.shape[2:]
         lesion_tokens, patch_tokens, attn_weights = self.forward_features(x)
@@ -266,7 +259,7 @@ class ViTConcept(VisionTransformer):
                 torch.bernoulli(torch.tensor([int_prob] * bs_size)).nonzero().squeeze()
             )
 
-        if intervene_sample_idx is not None:
+        if intervene_sample_idx is not None and lesion_lbls is not None:
             lesion_probs = torch.sigmoid(lesion_logits)
             int_precision = torch.clamp(lesion_lbls, 0.01, 0.99)
             target_scale = (
@@ -292,7 +285,9 @@ class ViTConcept(VisionTransformer):
         disease_logits = out_value.mean(dim=-1)
 
         if not return_attn:
-            return disease_logits, lesion_logits, lesion_tokens
+            return CLATOutput(
+                disease_logits, lesion_logits, lesion_tokens, None, None, None
+            )
 
         feature_map = local_lesion_tokens.detach().clone()
         feature_map = F.relu(feature_map)
@@ -313,9 +308,16 @@ class ViTConcept(VisionTransformer):
         elif attention_type == "mct":
             cams = mtatt
         else:
-            raise f"Error! {attention_type} is not defined!"
+            raise ValueError(f"Error! {attention_type} is not defined!")
 
-        return disease_logits, lesion_logits, cams, patch_attn, cross_attn_maps
+        return CLATOutput(
+            disease_logits,
+            lesion_logits,
+            lesion_tokens,
+            cams,
+            patch_attn,
+            cross_attn_maps,
+        )
 
     def tune_setting(self):
         for param in self.parameters():

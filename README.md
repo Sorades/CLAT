@@ -19,6 +19,11 @@ To install the dependencies, run:
 ```bash
 git clone https://github.com/Sorades/CLAT.git
 cd CLAT
+# if you are using pixi
+pixi i && pixi shell
+# or conda:
+conda env create -f environment && conda activate CLAT
+# or pip:
 pip install -r requirements.txt
 ```
 
@@ -29,16 +34,26 @@ pip install -r requirements.txt
 
 The annotation files are placed at `./data`
 
+### Preprocess
+Refer to `src/preprocess` for the implementation for image preprocessing.
+
 ### Training and Testing
 
-Modify the settings in `./config/default.yaml`,  and then run the commands below to train and test the model:
+Modify the settings in `./configs/default.yaml`,  and then run the commands below to train and test the model:
 
 ```bash
-python main.py fit_and_test --config configs/default.yaml --data configs/data/FGADDR.yaml
+python src/main.py fit_and_test --config configs/default.yaml --data configs/data/FGADDR.yaml
 
 # test with automatic intervention
-python main.py exp_int --config configs/default.yaml --data configs/data/FGADDR.yaml
+python src/main.py exp_int --config configs/default.yaml --data configs/data/FGADDR.yaml
 ```
+
+### Log
+By default, `Tensorboard` is used to log metrics and heatmaps.
+```bash
+tensorboard --logdir <INPUT_YOUR_LOG_DIR> --bind_all
+```
+Run the command and open the url (usually http://\<IP\>:6006) to access the dashboard.
 
 ## Citation
 

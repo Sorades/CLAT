@@ -1,19 +1,28 @@
+from functools import partial
+
+import numpy as np
 import torch
 import torch.nn as nn
-from functools import partial
-import numpy as np
-from timm.models.vision_transformer import VisionTransformer, _cfg
 from timm.models.layers import trunc_normal_
+from timm.models.vision_transformer import VisionTransformer, _cfg
+
 
 def MIL_VT_small_patch16_384(pretrained=False, **kwargs):
     model = MILVisionTransformer(
-        img_size=384, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    model.default_cfg = _cfg()
+        img_size=384,
+        patch_size=16,
+        embed_dim=384,
+        depth=12,
+        num_heads=6,
+        mlp_ratio=4,
+        qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        **kwargs,
+    )
+    model.default_cfg = _cfg()  # type: ignore
     if pretrained:
         checkpoint = torch.hub.load_state_dict_from_url(
-            url="",
-            map_location="cpu", check_hash=True
+            url="", map_location="cpu", check_hash=True
         )
         model.load_state_dict(checkpoint["model"])
     return model
@@ -29,16 +38,16 @@ class MILVisionTransformer(VisionTransformer):
 
         self.size2 = int(np.sqrt(num_patches))
         self.dim = self.embed_dim
-        self.L = 256 #self.dim//3
-        self.D = 128 #self.dim//5
-        self.K = 1 #self.num_classes*1
+        self.L = 256  # self.dim//3
+        self.D = 128  # self.dim//5
+        self.K = 1  # self.num_classes*1
         self.MIL_Prep = torch.nn.Sequential(
-                torch.nn.Linear(self.dim, self.L),
-                # torch.nn.BatchNorm1d(num_patches),
-                torch.nn.LayerNorm(self.L),
-                torch.nn.ReLU(inplace=True),
-                # nn.Dropout(0.1)
-                )
+            torch.nn.Linear(self.dim, self.L),
+            # torch.nn.BatchNorm1d(num_patches),
+            torch.nn.LayerNorm(self.L),
+            torch.nn.ReLU(inplace=True),
+            # nn.Dropout(0.1)
+        )
         self.MIL_attention = nn.Sequential(
             nn.Linear(self.L, self.D),
             # nn.Tanh(),
@@ -46,17 +55,15 @@ class MILVisionTransformer(VisionTransformer):
             torch.nn.LayerNorm(self.D),
             nn.ReLU(inplace=True),
             nn.Dropout(0.2),
-            nn.Linear(self.D, self.K)
-
+            nn.Linear(self.D, self.K),
             # nn.Linear(self.L, self.K)
         )
 
         self.MIL_classifier = nn.Sequential(
-            nn.Linear(self.L*self.K, self.num_classes),
+            nn.Linear(self.L * self.K, self.num_classes),
         )
 
-
-        trunc_normal_(self.pos_embed, std=.02)
+        trunc_normal_(self.pos_embed, std=0.02)
         # self.head_dist.apply(self._init_weights)
         self.MIL_Prep[0].apply(self._init_weights)
         self.MIL_Prep[1].apply(self._init_weights)
@@ -72,7 +79,9 @@ class MILVisionTransformer(VisionTransformer):
         B = x.shape[0]
         x = self.patch_embed(x)
 
-        cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        cls_tokens = self.cls_token.expand(  # type: ignore
+            B, -1, -1
+        )  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_tokens, x), dim=1)
 
         x = x + self.pos_embed
@@ -89,14 +98,14 @@ class MILVisionTransformer(VisionTransformer):
         vt_out = self.head(x)
 
         """MIL operations for the """
-        H = self.MIL_Prep(x_patches)  #B*N*D -->  B*N*L
+        H = self.MIL_Prep(x_patches)  # B*N*D -->  B*N*L
 
         A = self.MIL_attention(H)  # B*N*K
         # A = torch.transpose(A, 1, 0)  # KxN
-        A = A.permute((0, 2, 1))  #B*K*N
+        A = A.permute((0, 2, 1))  # B*K*N
         A = nn.functional.softmax(A, dim=2)  # softmax over N
         M = torch.bmm(A, H)  # B*K*N X B*N*L --> B*K*L
-        M = M.view(-1, M.size(1)*M.size(2))
+        M = M.view(-1, M.size(1) * M.size(2))
 
         mil_out = self.MIL_classifier(M)
 
@@ -105,4 +114,4 @@ class MILVisionTransformer(VisionTransformer):
             return vt_out, mil_out
         else:
             # during inference, return the average of both classifier predictions
-            return (vt_out+ mil_out) / 2
+            return (vt_out + mil_out) / 2

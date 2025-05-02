@@ -1,4 +1,4 @@
-class_path: data.FundusDatamodule
+class_path: clat.data.FundusDatamodule
 init_args:
   dataset_name: FGADR
   disease_names: ["No DR", "Mild", "Moderate", "Severe", "Proliferative"]
