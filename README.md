@@ -37,6 +37,8 @@ The annotation files are placed at `./data`
 ### Preprocess
 Refer to `src/preprocess` for the implementation for image preprocessing.
 
+_**!!Please note** that the lesion label simply indicates the presence or absence of the corresponding lesion. In our experiments, lesion labels for DDR and FGADR are determined by the existence of a mask._
+
 ### Training and Testing
 
 Modify the settings in `./configs/default.yaml`,  and then run the commands below to train and test the model:
